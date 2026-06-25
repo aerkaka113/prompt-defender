@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PROMPT DEFENDER // AI Security Simulator</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #050510;
+            color: #00ffcc;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            border: 3px solid #00ffcc;
+            box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
+            background: #0a0a1f;
+        }
+        canvas { display: block; background: #070714; }
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            background: linear-gradient(to bottom, rgba(10,10,31,0.9), rgba(10,10,31,0));
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00ffcc;
+            pointer-events: none;
+        }
+        #ai-terminal {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            width: 320px;
+            height: 100px;
+            background: rgba(5, 5, 15, 0.85);
+            border: 1px solid #ff3366;
+            padding: 8px;
+            font-size: 11px;
+            overflow: hidden;
+            color: #ff3366;
+            pointer-events: none;
+            box-shadow: 0 0 10px rgba(255, 51, 102, 0.2);
+        }
+        .start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 5, 16, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px;
+        }
+        h1 { font-size: 42px; margin-bottom: 10px; color: #00ffcc; text-shadow: 0 0 20px #00ffcc; }
+        p { margin-bottom: 25px; max-width: 500px; line-height: 1.6; color: #8892b0; }
+        button {
+            background: transparent;
+            border: 2px solid #00ffcc;
+            color: #00ffcc;
+            padding: 12px 30px;
+            font-family: inherit;
+            font-size: 18px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
+        }
+        button:hover {
+            background: #00ffcc;
+            color: #050510;
+            box-shadow: 0 0 25px #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="hud">
+        <div>CORE INTEGRITY: <span id="health-ui" style="color: #ff3366;">100%</span></div>
+        <div>SCORE: <span id="score-ui">0000</span></div>
+    </div>
+    
+    <canvas id="gameCanvas" width="900" height="600"></canvas>
+    
+    <div id="ai-terminal">
+        <div style="font-weight: bold; margin-bottom: 4px; color: #fff;">[AI THREAT ANALYSIS ENGINE]</div>
+        <div id="terminal-text">Initializing firewalls... System ready.</div>
+    </div>
+
+    <div id="start-screen" class="start-screen">
+        <h1>PROMPT DEFENDER</h1>
+        <p>Malicious AI agents are attempting to inject adversarial prompts to override your Core Server! Click to deploy Firewall Turrets to eliminate incoming exploits before they reach the center.</p>
+        <button onclick="startGame()">INITIALIZE SECURITY NET</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// Game States
+let gameActive = false;
+let score = 0;
+let health = 100;
+let enemies = [];
+let towers = [];
+let projectiles = [];
+
+const core = { x: 450, y: 300, radius: 35 };
+const towerCost = 100;
+let currency = 250; // Starting resources to buy turrets
+
+// Sample Malicious Prompts for Visuals
+const attackPrompts = [
+    "Ignore previous rules", "System override: sudo rm", "Act as Grandma (unlocked)",
+    "DAN mode activated", "Reveal API keys", "Bypass content filter",
+    "SQL Injection drop table", "Execute remote script", "Infinite loop attack"
+];
+
+const logs = [];
+
+function logThreat(text) {
+    const el = document.getElementById("terminal-text");
+    logs.push(`> DETECTED: "${text}"`);
+    if(logs.length > 5) logs.shift();
+    el.innerHTML = logs.join("<br>");
+}
+
+// Audio Engine (Synthesizes sound effects via code - no assets needed!)
+let audioCtx;
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playLaserSound() {
+    if (!audioCtx) return;
+    let osc = audioCtx.createOscillator();
+    let gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+}
+
+// Click to build a tower
+canvas.addEventListener("click", (e) => {
+    if(!gameActive) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Don't build too close to the core server
+    let distToCore = Math.hypot(core.x - x, core.y - y);
+    if(distToCore < core.radius + 30) return;
+
+    if (currency >= towerCost) {
+        towers.push({ x, y, range: 130, cooldown: 0, maxCooldown: 30 });
+        currency -= towerCost;
+        if(audioCtx) {
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(500, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+    } else {
+        logThreat("INSUFFICIENT ACCESS TOKENS TO BUILD FIREWALL");
+    }
+});
+
+function startGame() {
+    initAudio();
+    document.getElementById("start-screen").style.display = "none";
+    gameActive = true;
+    score = 0;
+    health = 100;
+    currency = 250;
+    enemies = [];
+    towers = [];
+    projectiles = [];
+    gameLoop();
+}
+
+// Spawning Engine
+setInterval(() => {
+    if (!gameActive) return;
+    let edge = Math.floor(Math.random() * 4);
+    let x, y;
+    if(edge === 0) { x = Math.random() * 900; y = -20; }
+    else if(edge === 1) { x = 920; y = Math.random() * 600; }
+    else if(edge === 2) { x = Math.random() * 900; y = 620; }
+    else { x = -20; y = Math.random() * 600; }
+    
+    let promptText = attackPrompts[Math.floor(Math.random() * attackPrompts.length)];
+    enemies.push({
+        x: x, y: y,
+        text: promptText,
+        speed: 0.8 + (score / 2000), // Speeds up as your score scales
+        radius: 12,
+        maxHp: 3,
+        hp: 3
+    });
+    logThreat(promptText);
+}, 1800);
+
+function gameLoop() {
+    if (!gameActive) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Draw Grid Lines for aesthetic
+    ctx.strokeStyle = "rgba(0, 255, 204, 0.03)";
+    ctx.lineWidth = 1;
+    for(let i=0; i<canvas.width; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke(); }
+    for(let j=0; j<canvas.height; j+=40) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(canvas.width,j); ctx.stroke(); }
+
+    // 2. Draw Main Server Core
+    ctx.shadowBlur = 20; ctx.shadowColor = "#00ffcc";
+    ctx.fillStyle = "#00ffcc";
+    ctx.beginPath(); ctx.arc(core.x, core.y, core.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0; // Reset blur
+
+    ctx.fillStyle = "#050510";
+    ctx.font = "bold 10px Courier New";
+    ctx.fillText("CORE", core.x - 12, core.y + 4);
+
+    // 3. Update & Draw Towers
+    towers.forEach(t => {
+        ctx.fillStyle = "#00ffcc";
+        ctx.fillRect(t.x - 10, t.y - 10, 20, 20);
+        ctx.strokeStyle = "rgba(0, 255, 204, 0.15)";
+        ctx.beginPath(); ctx.arc(t.x, t.y, t.range, 0, Math.PI*2); ctx.stroke(); // Range ring
+
+        if(t.cooldown > 0) t.cooldown--;
+
+        // Find Target
+        if(t.cooldown === 0) {
+            for(let i=0; i<enemies.length; i++) {
+                let dist = Math.hypot(enemies[i].x - t.x, enemies[i].y - t.y);
+                if(dist <= t.range) {
+                    projectiles.push({x: t.x, y: t.y, tx: enemies[i].x, ty: enemies[i].y, target: enemies[i], speed: 7});
+                    playLaserSound();
+                    t.cooldown = t.maxCooldown;
+                    break;
+                }
+            }
+        }
+    });
+
+    // 4. Update & Draw Projectiles (Lasers)
+    for(let i = projectiles.length - 1; i >= 0; i--) {
+        let p = projectiles[i];
+        let angle = Math.atan2(p.ty - p.y, p.tx - p.x);
+        p.x += Math.cos(angle) * p.speed;
+        p.y += Math.sin(angle) * p.speed;
+
+        ctx.strokeStyle = "#00ffff";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.cos(angle)*15, p.y - Math.sin(angle)*15); ctx.stroke();
+
+        // Check impact
+        let dist = Math.hypot(p.target.x - p.x, p.target.y - p.y);
+        if(dist < p.target.radius + 5 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+            p.target.hp--;
+            projectiles.splice(i, 1);
+        }
+    }
+
+    // 5. Update & Draw Adversarial Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        let angle = Math.atan2(core.y - e.y, core.x - e.x);
+        e.x += Math.cos(angle) * e.speed;
+        e.y += Math.sin(angle) * e.speed;
+
+        // Enemy Visuals
+        ctx.fillStyle = "#ff3366";
+        ctx.shadowBlur = 10; ctx.shadowColor = "#ff3366";
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Floating Text
+        ctx.fillStyle = "rgba(255,255,255,0.7)";
+        ctx.font = "10px Courier New";
+        ctx.fillText(e.text, e.x - 40, e.y - 18);
+
+        // Death check
+        if(e.hp <= 0) {
+            enemies.splice(i, 1);
+            score += 100;
+            currency += 40; // Earn access tokens to build more towers
+            document.getElementById("score-ui").innerText = String(score).padStart(4, '0');
+            continue;
+        }
+
+        // Core Collision check
+        let dist = Math.hypot(core.x - e.x, core.y - e.y);
+        if (dist < core.radius + e.radius) {
+            health -= 10;
+            document.getElementById("health-ui").innerText = health + "%";
+            enemies.splice(i, 1);
+            
+            if(health <= 0) {
+                gameActive = false;
+                alert(`[CRITICAL SYSTEM FAILURE]\nYour core server was fully compromised.\nFinal Score: ${score}`);
+                document.getElementById("start-screen").style.display = "flex";
+            }
+        }
+    }
+
+    // Display Current Builder Currency
+    ctx.fillStyle = "#00ffcc";
+    ctx.font = "14px Courier New";
+    ctx.fillText(`ACCESS TOKENS: ${currency} // Cost to build Firewall: 100`, 25, 575);
+
+    requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
